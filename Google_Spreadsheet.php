@@ -1,305 +1,414 @@
 <?php
 
-/*
+/**
+ * @author		Dimas Begunoff
+ * @copyright	Copyright (c) 2010, Dimas Begunoff, http://farinspace.com
+ * @license		http://en.wikipedia.org/wiki/MIT_License The MIT License
+ * @package		google-spreadsheet
+ * @version		1.1
+ * @link		http://github.com/farinspace/google-spreadsheet
+ * @link		http://farinspace.com
+ */
 
-Copyright (c) 2009 Dimas Begunoff, http://www.farinspace.com/
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-*/
+require_once 'Google_Worksheet.php';
 
 class Google_Spreadsheet
 {
-	private $client;
+	protected $auth_header;
 
-	private $spreadsheet;
-	private $spreadsheet_id;
+	protected $spreadsheets;
 
-	private $worksheet = "Sheet1";
-	private $worksheet_id;
+	protected $worksheets;
 
-	function __construct($user,$pass,$ss=FALSE,$ws=FALSE)
+	protected $worksheet;
+
+	protected $worksheet_id;
+
+	protected $spreadsheet_id;
+
+	protected $worksheet_id;
+
+	/**
+	 * @since	1.1
+	 * @access	public
+	 * @param	string $username
+	 * @param	string $password
+	 * @param	string $spreadsheet
+	 * @see		use_spreadsheet()
+	 */
+	public function __construct($username, $password, $spreadsheet = NULL)
 	{
-		$this->login($user,$pass);
-		if ($ss) $this->useSpreadsheet($ss);
-		if ($ws) $this->useWorksheet($ws);
-	}
-
-	function useSpreadsheet($ss,$ws=FALSE)
-	{
-		$this->spreadsheet = $ss;
-		$this->spreadsheet_id = NULL;
-		if ($ws) $this->useWorksheet($ws);
-	}
-
-	function useWorksheet($ws)
-	{
-		$this->worksheet = $ws;
-		$this->worksheet_id = NULL;
-	}
-
-	function addRow($row)
-	{
-		if ($this->client instanceof Zend_Gdata_Spreadsheets)
+		if (isset($username) AND isset($password))
 		{
-			$ss_id = $this->getSpreadsheetId($this->spreadsheet);
+			$this->authenticate($username, $password);
 
-			if (!$ss_id) throw new Exception('Unable to find spreadsheet by name: "' . $this->spreadsheet . '", confirm the name of the spreadsheet');
-
-			$ws_id = $this->getWorksheetId($ss_id,$this->worksheet);
-
-			if (!$ws_id) throw new Exception('Unable to find worksheet by name: "' . $this->worksheet . '", confirm the name of the worksheet');
-
-			$insert_row = array();
-
-			foreach ($row as $k => $v) $insert_row[$this->cleanKey($k)] = $v;
-
-			$entry = $this->client->insertRow($insert_row,$ss_id,$ws_id);
-
-			if ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry) return TRUE;
-		}
-
-		throw new Exception('Unable to add row to the spreadsheet');
-	}
-
-	// http://code.google.com/apis/spreadsheets/docs/2.0/reference.html#ListParameters
-	function updateRow($row,$search)
-	{
-		if ($this->client instanceof Zend_Gdata_Spreadsheets AND $search)
-		{
-			$feed = $this->findRows($search);
-			
-			if ($feed->entries)
+			if (isset($spreadsheet))
 			{
-				foreach($feed->entries as $entry) 
-				{
-					if ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)
-					{
-						$update_row = array();
-
-						$customRow = $entry->getCustom();
-						foreach ($customRow as $customCol) 
-						{
-							$update_row[$customCol->getColumnName()] = $customCol->getText();
-						}
-			
-						// overwrite with new values
-						foreach ($row as $k => $v) 
-						{
-							$update_row[$this->cleanKey($k)] = $v;
-						}
-
-						// update row data, then save
-						$entry = $this->client->updateRow($entry,$update_row);
-						if ( ! ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)) return FALSE;
-					}
-				}
-
-				return TRUE;
+				$this->use_spreadsheet($spreadsheet);
 			}
 		}
-
-		return FALSE;
+		else
+		{
+			throw new Exception('Google account username and password required');
+		}
 	}
 
-	// http://code.google.com/apis/spreadsheets/docs/2.0/reference.html#ListParameters
-	function getRows($search=FALSE)
+	/**
+	 * @since	1.1
+	 * @access	protected
+	 * @param	string $username
+	 * @param	string $password
+	 */
+	protected function authenticate($username, $password)
 	{
-		$rows = array();
-		
-		if ($this->client instanceof Zend_Gdata_Spreadsheets)
-		{
-			$feed = $this->findRows($search);
-			
-			if ($feed->entries)
-			{
-				foreach($feed->entries as $entry) 
-				{
-					if ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)
-					{
-						$row = array();
-						
-						$customRow = $entry->getCustom();
-						foreach ($customRow as $customCol) 
-						{
-							$row[$customCol->getColumnName()] = $customCol->getText();
-						}
+		$content = $this->do_post('https://www.google.com/accounts/ClientLogin', array
+		(
+			'accountType' => 'GOOGLE',
+			'Email' => $username,
+			'Passwd' => $password,
+			'service' => 'wise',
+			'source' => 'farinspace-Google_Spreadsheet_Helper-1.0',
+		));
 
-						$rows[] = $row;
-					}
-				}
-			}
+		if (stristr($content, 'badauthentication'))
+		{
+			throw new Exception('Google account username and/or password are incorrect');
 		}
 
-		return $rows;
-	}
+		$a = preg_split('/\n|\r/', trim($content));
 
-	// user contribution by dmon (6/10/2009)
-	function deleteRow($search)
-	{
-		if ($this->client instanceof Zend_Gdata_Spreadsheets AND $search)
+		if (is_array($a))
 		{
-			$feed = $this->findRows($search);
-			
-			if ($feed->entries)
+			foreach ($a as $v)
 			{
-				foreach($feed->entries as $entry)
+				if ('Auth' == substr($v, 0, 4))
 				{
-					if ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)
-					{
-						$this->client->deleteRow($entry);
-						
-						if ( ! ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)) return FALSE;
-					}
-				}
-
-				return TRUE;
-			}
-		}
-
-		return FALSE;
-	}
-
-	function getColumnNames()
-	{
-		$query = new Zend_Gdata_Spreadsheets_ListQuery();
-		$query->setSpreadsheetKey($this->getSpreadsheetId());
-		$query->setWorksheetId($this->getWorksheetId());
-		$query->setMaxResults(1);
-		$query->setStartIndex(1);
-
-		$feed = $this->client->getListFeed($query);
-
-		$data = array();
-
-		if ($feed->entries)
-		{
-			foreach($feed->entries as $entry) 
-			{
-				if ($entry instanceof Zend_Gdata_Spreadsheets_ListEntry)
-				{
-					$customRow = $entry->getCustom();
-
-					foreach ($customRow as $customCol) 
-					{
-						array_push($data,$customCol->getColumnName());
-					}
-				}
-			}
-		}
-
-		return $data;
-	}
-
-	private function login($user,$pass)
-	{
-		// Zend Gdata package required
-		// http://framework.zend.com/download/gdata
-		
-		require_once 'Zend/Loader.php';
-		Zend_Loader::loadClass('Zend_Http_Client');
-		Zend_Loader::loadClass('Zend_Gdata');
-		Zend_Loader::loadClass('Zend_Gdata_ClientLogin');
-		Zend_Loader::loadClass('Zend_Gdata_Spreadsheets');
-
-		$service = Zend_Gdata_Spreadsheets::AUTH_SERVICE_NAME;
-		$http = Zend_Gdata_ClientLogin::getHttpClient($user,$pass,$service);
-		$this->client = new Zend_Gdata_Spreadsheets($http);
-
-		if ($this->client instanceof Zend_Gdata_Spreadsheets) return TRUE;
-
-		return FALSE;
-	}
-
-	private function findRows($search=FALSE)
-	{
-		$query = new Zend_Gdata_Spreadsheets_ListQuery();
-		$query->setSpreadsheetKey($this->getSpreadsheetId());
-		$query->setWorksheetId($this->getWorksheetId());
-
-		if ($search) $query->setSpreadsheetQuery($search);
-
-		$feed = $this->client->getListFeed($query);
-
-		return $feed;
-	}
-
-	private function getSpreadsheetId($ss=FALSE)
-	{
-		if ($this->spreadsheet_id) return $this->spreadsheet_id;
-
-		$ss = $ss?$ss:$this->spreadsheet;
-		
-		$ss_id = FALSE;
-		
-		$feed = $this->client->getSpreadsheetFeed();
-
-		foreach($feed->entries as $entry) 
-		{
-			if ($entry->title->text == $ss)
-			{
-				$ss_id = array_pop(explode("/",$entry->id->text));
-
-				$this->spreadsheet_id = $ss_id;
-
-				break;
-			}
-		}
-
-		return $ss_id;
-	}
-
-	private function getWorksheetId($ss_id=FALSE,$ws=FALSE)
-	{
-		if ($this->worksheet_id) return $this->worksheet_id;
-
-		$ss_id = $ss_id?$ss_id:$this->spreadsheet_id;
-
-		$ws = $ws?$ws:$this->worksheet;
-
-		$wk_id = FALSE;
-
-		if ($ss_id AND $ws)
-		{
-			$query = new Zend_Gdata_Spreadsheets_DocumentQuery();
-			$query->setSpreadsheetKey($ss_id);
-			$feed = $this->client->getWorksheetFeed($query);
-
-			foreach($feed->entries as $entry) 
-			{
-				if ($entry->title->text == $ws)
-				{
-					$wk_id = array_pop(explode("/",$entry->id->text));
-
-					$this->worksheet_id = $wk_id;
+					$auth = trim(str_replace('Auth=', '', $v));
 
 					break;
 				}
 			}
 		}
 
-		return $wk_id;
+		if ( ! isset($auth))
+		{
+			throw new Exception('Unable to authorize');
+		}
+
+		$this->auth_header = 'Authorization: GoogleLogin auth=' . $auth;
 	}
 
-	function cleanKey($k)
+	protected function check_auth_header()
 	{
-		return strtolower(preg_replace('/[^A-Za-z0-9\-\.]+/','',$k));
+		if ( ! isset($this->auth_header))
+		{
+			throw new Exception('Authorization required');
+		}
+	}
+
+	protected function check_spreadsheet_id()
+	{
+		if ( ! isset($this->spreadsheet_id))
+		{
+			throw new Exception('A spreadsheet name or ID is required');
+		}
+	}
+
+	/**
+	 * @since	1.1
+	 * @access	public
+	 * @return	array
+	 */
+	public function get_spreadsheets()
+	{
+		$this->check_auth_header();
+
+		if (isset($this->spreadsheets))
+		{
+			return $this->spreadsheets;
+		}
+
+		$content = $this->do_get('https://spreadsheets.google.com/feeds/spreadsheets/private/full');
+
+		if ('<?xml' !== substr($content, 0, 5))
+		{
+			throw new Exception('Google API bad URI endpoint');
+		}
+
+		try
+		{
+			$xml = new SimpleXmlElement($content);
+
+			$this->spreadsheets = array();
+
+			foreach ($xml->entry as $entry)
+			{
+				array_push($this->spreadsheets, array
+				(
+					'id' => basename($entry->id),
+					'name' => trim($entry->title),
+				));
+			}
+
+			return $this->spreadsheets;
+		}
+		catch (Exception $e)
+		{
+			throw new Exception('Unable to get list of spreadsheets');
+		}
+	}
+
+	/**
+	 * @since	1.1
+	 * @access	public
+	 * @param	string $name
+	 * @return	Google_Spreadsheet
+	 */
+	public function use_spreadsheet($name)
+	{
+		$this->get_spreadsheets();
+
+		if (is_array($this->spreadsheets))
+		{
+			foreach ($this->spreadsheets as $v)
+			{
+				if ($name == $v['name'])
+				{
+					$found = TRUE;
+					
+					break;
+				}
+			}
+
+			if (isset($found))
+			{
+				$this->set_spreadsheet_id($v['id']);
+
+				return $this;
+			}
+		}
+		
+		throw new Exception('Unable to find spreadsheet');
+	}
+
+	/**
+	 * @since	1.1
+	 * @access	public
+	 * @param	string $id
+	 * @return	Google_Spreadsheet
+	 */
+	public function set_spreadsheet_id($id)
+	{
+		$this->spreadsheet_id = $id;
+
+		return $this;
+	}
+
+	function get_worksheets()
+	{
+		$this->check_auth_header();
+
+		$this->check_spreadsheet_id();
+
+		if (isset($this->worksheets))
+		{
+			return $this->worksheets;
+		}
+
+		$content = $this->do_get('https://spreadsheets.google.com/feeds/worksheets/' . $this->spreadsheet_id . '/private/full');
+
+		if ('<?xml' !== substr($content, 0, 5))
+		{
+			throw new Exception('Google API bad URI endpoint');
+		}
+
+		try
+		{
+			$xml = new SimpleXmlElement($content);
+
+			$this->worksheets = array();
+
+			foreach ($xml->entry as $entry)
+			{
+				$title = trim(strval($entry->title));
+
+				$ws = new Google_Worksheet($title);
+
+				$ws->set_id(basename($entry->id));
+
+				$this->worksheets[$title] = $ws;
+			}
+
+			return $this->worksheets;
+		}
+		catch (Exception $e)
+		{
+			throw new Exception('Unable to get list of worksheets');
+		}
+	}
+
+	function use_worksheet($title = 'Sheet1')
+	{
+		$this->get_worksheets();
+
+		if (is_array($this->worksheets))
+		{
+			if (isset($this->worksheets[$title]))
+			{
+				$this->set_worksheet_id($this->worksheets[$title]->get_id());
+
+				return $this->worksheets[$title];
+			}
+		}
+
+		throw new Exception('Unable to find worksheet');
+	}
+
+	function set_worksheet_id($id)
+	{
+		$this->worksheet_id = $id;
+	}
+
+	function find_rows($q)
+	{
+
+	}
+
+	function getRows($q = NULL)
+	{
+		return $this->get_rows($q);
+	}
+
+	function get_rows($q = NULL)
+	{
+		if ( ! isset($this->spreadsheet_id))
+		{
+			throw new Exception('A spreadsheet name or ID must be defined');
+		}
+
+		if ( ! isset($this->worksheet_id))
+		{
+			throw new Exception('A worksheet name or ID must be defined');
+		}
+		
+		$url = 'https://spreadsheets.google.com/feeds/list/' . $this->spreadsheet_id . '/' . $this->worksheet_id . '/private/full';
+
+		if (is_array($q))
+		{
+			$params = $q;
+		}
+		elseif (is_string($q))
+		{
+			$params = array('sq' => $q);
+		}
+		else
+		{
+			$params = NULL;
+		}
+
+		$content = $this->get($url, $params);
+
+		if ('parse error' == strtolower(substr($content, 0, 11)))
+		{
+			throw new Exception('Bad query');
+		}
+
+		$xml = new SimpleXmlElement($content);
+
+		$namespaces = $xml->getNameSpaces(TRUE);
+
+		$rows = array();
+
+		foreach ($xml->entry as $entry)
+		{
+			if (isset($namespaces['gsx']))
+			{
+				$row = (array)$entry->children($namespaces['gsx']);
+
+				array_push($rows, new Google_Spreadsheet_Row($row));
+			}
+		}
+
+		return $rows;
+	}
+
+	/**
+	* Used to make GET requests
+	*
+	* @access	protected
+	* @param	string $url absolute URL
+	* @param	string $params optional assocative array of parameters to send with the request
+	* @param	string $headers optional headers to send along with the request
+	* @return	mixed
+	* @see		request()
+	*/
+	protected function do_get($url ,$params = NULL, $headers = NULL)
+	{
+		return $this->do_request($url, $params, 'get', $headers);
+	}
+
+	/**
+	* Used to make POST requests
+	*
+	* @access	protected
+	* @param	string $url absolute URL
+	* @param	string $params optional assocative array of parameters to send with the request
+	* @param	string $headers optional headers to send along with the request
+	* @return	mixed
+	* @see		request()
+	*/
+	protected function do_post($url, $params = NULL, $headers = NULL)
+	{
+		return $this->do_request($url, $params, 'post', $headers);
+	}
+
+	/**
+	* Used to make GET or POST requests
+	*
+	* @access	protected
+	* @param	string $url absolute URL
+	* @param	string $params optional assocative array of parameters to send with the request
+	* @param	string $method optional request method, 'get' or 'post', defaults to 'get'
+	* @param	string $headers optional headers to send along with the request
+	* @return	mixed
+	* @see		get(), post()
+	*/
+	protected function do_request($url, $params = NULL, $method = 'get', $headers = NULL)
+	{
+		$ch = curl_init();
+
+		if (is_array($params))
+		{
+			if ('post' === strtolower($method))
+			{
+				curl_setopt($ch, CURLOPT_POST, TRUE);
+
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+			}
+			else
+			{
+				$url .= '?' . http_build_query($params);
+			}
+		}
+
+		curl_setopt($ch, CURLOPT_URL, $url);
+
+		//curl_setopt($ch, CURLOPT_USERAGENT, $this->ua);
+
+		$headers = array_merge(array($this->auth_header), (array)$headers);
+
+		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+
+		$content = curl_exec($ch);
+
+		curl_close($ch);
+
+		return $content;
 	}
 }
+
+/* end of file */
