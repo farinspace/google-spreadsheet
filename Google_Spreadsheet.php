@@ -255,7 +255,8 @@ class Google_Spreadsheet
 		{
 			if ($entry->title->text == $ss)
 			{
-				$ss_id = array_pop(explode("/",$entry->id->text));
+				$ss_id = explode("/",$entry->id->text);
+				$ss_id = array_pop($ss_id);
 
 				$this->spreadsheet_id = $ss_id;
 
@@ -286,7 +287,8 @@ class Google_Spreadsheet
 			{
 				if ($entry->title->text == $ws)
 				{
-					$wk_id = array_pop(explode("/",$entry->id->text));
+					$wk_id = explode("/",$entry->id->text);
+					$wk_id = array_pop($wk_id);
 
 					$this->worksheet_id = $wk_id;
 
